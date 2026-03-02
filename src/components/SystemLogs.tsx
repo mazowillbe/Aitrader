@@ -18,22 +18,22 @@ export function SystemLogs() {
   const [filter, setFilter] = useState<string>('all');
 
   useEffect(() => {
-    loadLogs();
-    const interval = setInterval(loadLogs, 3000);
+    const fetchLogs = async () => {
+      try {
+        const category = filter === 'all' ? undefined : filter;
+        const data = await api.getLogs(100, category);
+        setLogs(data);
+        setIsLoading(false);
+      } catch (error) {
+        console.error('Failed to load logs:', error);
+        setIsLoading(false);
+      }
+    };
+
+    fetchLogs();
+    const interval = setInterval(fetchLogs, 3000);
     return () => clearInterval(interval);
   }, [filter]);
-
-  const loadLogs = async () => {
-    try {
-      const category = filter === 'all' ? undefined : filter;
-      const data = await api.getLogs(100, category);
-      setLogs(data);
-      setIsLoading(false);
-    } catch (error) {
-      console.error('Failed to load logs:', error);
-      setIsLoading(false);
-    }
-  };
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);

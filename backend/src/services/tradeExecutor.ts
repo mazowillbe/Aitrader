@@ -1,5 +1,6 @@
 import { db } from './database';
 import { logger } from './logger';
+import { riskManager } from './riskManager';
 
 export interface TradeInstruction {
   action: 'BUY' | 'SELL' | 'HOLD';
@@ -9,6 +10,15 @@ export interface TradeInstruction {
   take_profit: number;
   confidence: number;
   reasoning?: string;
+  market_regime?: string;
+  strategy_used?: string;
+  session?: string;
+  confluence_score?: number;
+  timeframe_alignment?: string;
+  economic_events?: string;
+  trailing_stop?: boolean;
+  trailing_stop_distance?: number;
+  r_multiple_target?: number;
 }
 
 export interface TradeResult {
@@ -28,67 +38,92 @@ class TradeExecutor {
     this.maxDailyRisk = Number(process.env.MAX_DAILY_RISK) || 500;
   }
 
-  /**
-   * Execute a trade instruction from the AI agent
-   */
   async executeTrade(instruction: TradeInstruction): Promise<TradeResult> {
-    // Validate instruction
     if (instruction.action === 'HOLD') {
-      logger.log('info', 'trade', 'AI decided to HOLD', { instruction });
+      logger.log('info', 'trade', 'AI decided to HOLD', {
+        regime: instruction.market_regime,
+        session: instruction.session
+      });
       return { success: true };
     }
 
-    // Check risk limits
     const account = this.getAccountState();
     if (account.daily_risk_used >= this.maxDailyRisk) {
       logger.log('warn', 'trade', 'Daily risk limit reached', { limit: this.maxDailyRisk });
       return { success: false, error: 'Daily risk limit reached' };
     }
 
-    const tradeValue = instruction.volume;
-    if (tradeValue > this.maxTradeSize) {
-      logger.log('warn', 'trade', 'Trade size exceeds limit', { size: tradeValue, limit: this.maxTradeSize });
-      return { success: false, error: 'Trade size exceeds maximum allowed' };
+    const riskAssessment = riskManager.assessTrade({
+      symbol: instruction.symbol,
+      volume: instruction.volume,
+      stop_loss: instruction.stop_loss,
+      entry_price: this.getSimulatedPrice(instruction.symbol),
+      action: instruction.action
+    });
+
+    if (!riskAssessment.approved) {
+      logger.log('warn', 'trade', 'Trade rejected by risk manager', {
+        symbol: instruction.symbol,
+        reason: riskAssessment.reason,
+        kelly_fraction: riskAssessment.kelly_fraction,
+        portfolio_heat: riskAssessment.portfolio_heat
+      });
+      return { success: false, error: `Risk manager: ${riskAssessment.reason}` };
     }
 
-    // Execute based on mode
+    const adjustedInstruction = {
+      ...instruction,
+      volume: riskAssessment.adjusted_volume
+    };
+
     if (this.demoMode) {
-      return this.executeDemoTrade(instruction);
+      return this.executeDemoTrade(adjustedInstruction, riskAssessment);
     } else {
-      return this.executeLiveTrade(instruction);
+      return this.executeLiveTrade(adjustedInstruction);
     }
   }
 
-  /**
-   * Execute a demo trade (simulated)
-   */
-  private executeDemoTrade(instruction: TradeInstruction): TradeResult {
+  private executeDemoTrade(instruction: TradeInstruction, riskAssessment: any): TradeResult {
     try {
-      // Simulate current market price (in real system, fetch from market data API)
       const currentPrice = this.getSimulatedPrice(instruction.symbol);
 
-      // Insert trade into database
       const result = db.prepare(`
-        INSERT INTO trades (symbol, action, volume, entry_price, stop_loss, take_profit, confidence, status, ai_reasoning)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN', ?)
+        INSERT INTO trades (
+          symbol, action, volume, entry_price, stop_loss, take_profit, confidence, status, ai_reasoning,
+          market_regime, strategy_used, session, confluence_score, timeframe_alignment, economic_events,
+          trailing_stop_active, trailing_stop_distance, current_stop_price
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         instruction.symbol,
         instruction.action,
         instruction.volume,
         currentPrice,
-        instruction.stop_loss,
-        instruction.take_profit,
+        instruction.stop_loss || currentPrice * (instruction.action === 'BUY' ? 0.97 : 1.03),
+        instruction.take_profit || currentPrice * (instruction.action === 'BUY' ? 1.045 : 0.955),
         instruction.confidence,
-        instruction.reasoning || 'No reasoning provided'
+        instruction.reasoning || 'No reasoning provided',
+        instruction.market_regime || null,
+        instruction.strategy_used || null,
+        instruction.session || null,
+        instruction.confluence_score || null,
+        instruction.timeframe_alignment || null,
+        instruction.economic_events || null,
+        instruction.trailing_stop ? 1 : 0,
+        instruction.trailing_stop_distance || null,
+        instruction.stop_loss || null
       );
 
-      // Update account state
       this.updateAccountState(instruction.volume, 0);
 
       logger.log('info', 'trade', `Demo ${instruction.action} executed`, {
         symbol: instruction.symbol,
         volume: instruction.volume,
         price: currentPrice,
+        regime: instruction.market_regime,
+        strategy: instruction.strategy_used,
+        session: instruction.session,
+        kelly: riskAssessment.kelly_fraction,
         tradeId: result.lastInsertRowid
       });
 
@@ -99,61 +134,32 @@ class TradeExecutor {
     }
   }
 
-  /**
-   * Execute a live trade via broker API
-   * TODO: Integrate with MT5 API or broker REST API
-   */
   private async executeLiveTrade(instruction: TradeInstruction): Promise<TradeResult> {
-    try {
-      logger.log('warn', 'trade', 'Live trading not yet implemented - switch to DEMO mode', { instruction });
-
-      // TODO: Implement MT5 or broker API integration
-      // Example:
-      // const mt5Response = await fetch('MT5_API_URL', {
-      //   method: 'POST',
-      //   headers: { 'Authorization': `Bearer ${process.env.MT5_API_KEY}` },
-      //   body: JSON.stringify({
-      //     symbol: instruction.symbol,
-      //     type: instruction.action,
-      //     volume: instruction.volume,
-      //     sl: instruction.stop_loss,
-      //     tp: instruction.take_profit
-      //   })
-      // });
-
-      return { success: false, error: 'Live trading not configured' };
-    } catch (error) {
-      logger.log('error', 'trade', 'Failed to execute live trade', { error: String(error) });
-      return { success: false, error: String(error) };
-    }
+    logger.log('warn', 'trade', 'Live trading not yet implemented - switch to DEMO mode', {
+      instruction
+    });
+    return { success: false, error: 'Live trading not configured' };
   }
 
-  /**
-   * Get simulated price for demo mode
-   */
   private getSimulatedPrice(symbol: string): number {
-    // Simulated prices for demo
     const prices: Record<string, number> = {
       'BTC/USD': 42000 + Math.random() * 1000,
       'ETH/USD': 2200 + Math.random() * 100,
-      'EUR/USD': 1.08 + Math.random() * 0.01,
-      'GBP/USD': 1.27 + Math.random() * 0.01,
-      'AAPL': 185 + Math.random() * 5,
-      'TSLA': 240 + Math.random() * 10,
+      'EUR/USD': 1.085 + Math.random() * 0.005,
+      'GBP/USD': 1.275 + Math.random() * 0.005,
+      'USD/JPY': 148 + Math.random() * 1,
+      AAPL: 185 + Math.random() * 5,
+      TSLA: 240 + Math.random() * 10,
+      GOOGL: 140 + Math.random() * 3,
+      MSFT: 380 + Math.random() * 5
     };
     return prices[symbol] || 100 + Math.random() * 10;
   }
 
-  /**
-   * Get current account state
-   */
   private getAccountState() {
     return db.prepare('SELECT * FROM account_state ORDER BY id DESC LIMIT 1').get() as any;
   }
 
-  /**
-   * Update account state after trade
-   */
   private updateAccountState(tradeValue: number, profitLoss: number) {
     const account = this.getAccountState();
     db.prepare(`
@@ -168,26 +174,27 @@ class TradeExecutor {
     `).run(profitLoss, tradeValue, Math.abs(tradeValue * 0.02), account.id);
   }
 
-  /**
-   * Close a trade (for stop loss or take profit)
-   */
   closeTrade(tradeId: number, exitPrice: number, reason: string) {
     const trade = db.prepare('SELECT * FROM trades WHERE id = ?').get(tradeId) as any;
     if (!trade) return;
 
-    const profitLoss = trade.action === 'BUY'
-      ? (exitPrice - trade.entry_price) * trade.volume
-      : (trade.entry_price - exitPrice) * trade.volume;
+    const profitLoss =
+      trade.action === 'BUY'
+        ? (exitPrice - trade.entry_price) * trade.volume
+        : (trade.entry_price - exitPrice) * trade.volume;
+
+    const riskDistance = Math.abs(trade.entry_price - trade.stop_loss);
+    const rMultiple = riskDistance > 0 ? profitLoss / (riskDistance * trade.volume) : 0;
 
     db.prepare(`
       UPDATE trades
-      SET status = 'CLOSED', exit_price = ?, profit_loss = ?, closed_at = CURRENT_TIMESTAMP
+      SET status = 'CLOSED', exit_price = ?, profit_loss = ?, closed_at = CURRENT_TIMESTAMP, r_multiple = ?
       WHERE id = ?
-    `).run(exitPrice, profitLoss, tradeId);
+    `).run(exitPrice, profitLoss, rMultiple, tradeId);
 
     this.updateAccountState(0, profitLoss);
 
-    logger.log('info', 'trade', `Trade closed: ${reason}`, { tradeId, profitLoss });
+    logger.log('info', 'trade', `Trade closed: ${reason}`, { tradeId, profitLoss, rMultiple });
   }
 }
 
