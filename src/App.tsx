@@ -7,12 +7,17 @@ import { ActiveTrades } from './components/ActiveTrades';
 import { TradeHistory } from './components/TradeHistory';
 import { SystemLogs } from './components/SystemLogs';
 import { AccountSummary } from './components/AccountSummary';
+import { PerformanceDashboard } from './components/PerformanceDashboard';
+import { RiskMetrics } from './components/RiskMetrics';
+import { SessionClock } from './components/SessionClock';
+import { EconomicCalendar } from './components/EconomicCalendar';
 import { api } from './lib/api';
 
 function App() {
   const [config, setConfig] = useState<any>(null);
   const [accountBalance, setAccountBalance] = useState<any>(null);
   const [stats, setStats] = useState<any>(null);
+  const [features, setFeatures] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -25,15 +30,17 @@ function App() {
 
   const loadInitialData = async () => {
     try {
-      const [configData, balanceData, statsData] = await Promise.all([
+      const [configData, balanceData, statsData, featuresData] = await Promise.all([
         api.getConfig(),
         api.getAccountBalance(),
-        api.getTradeStats()
+        api.getTradeStats(),
+        fetch('http://localhost:3001/api/features').then(r => r.json())
       ]);
 
       setConfig(configData);
       setAccountBalance(balanceData);
       setStats(statsData);
+      setFeatures(featuresData.features);
       setIsLoading(false);
     } catch (error) {
       console.error('Failed to load data:', error);
@@ -70,10 +77,24 @@ function App() {
               <h1 className="text-2xl font-bold bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
                 AI Trading System
               </h1>
-              <p className="text-sm text-slate-400 mt-1">Autonomous trading powered by Gemini 3.1</p>
+              <p className="text-sm text-slate-400 mt-1">Professional autonomous trading powered by Gemini 3.1</p>
             </div>
 
             <div className="flex items-center gap-4">
+              {/* Feature Status Badges */}
+              <div className="hidden md:flex items-center gap-2">
+                {features?.enableRegimeDetection && (
+                  <Badge variant="outline" className="text-xs border-purple-500/50 text-purple-400">
+                    Regime Detection
+                  </Badge>
+                )}
+                {features?.enablePositionManagement && (
+                  <Badge variant="outline" className="text-xs border-blue-500/50 text-blue-400">
+                    Position Management
+                  </Badge>
+                )}
+              </div>
+
               <Badge variant={config?.trading_mode === 'LIVE' ? 'destructive' : 'secondary'} className="text-sm px-3 py-1">
                 {config?.trading_mode || 'DEMO'} MODE
               </Badge>
@@ -132,14 +153,30 @@ function App() {
           </Card>
         </div>
 
+        {/* Session & Economic Calendar Row */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
+          <div className="lg:col-span-1">
+            <SessionClock />
+          </div>
+          <div className="lg:col-span-2">
+            <EconomicCalendar />
+          </div>
+        </div>
+
         {/* Tabs */}
         <Tabs defaultValue="active" className="space-y-4">
-          <TabsList className="bg-slate-900/50 border border-slate-800">
+          <TabsList className="bg-slate-900/50 border border-slate-800 flex-wrap h-auto">
             <TabsTrigger value="active" className="data-[state=active]:bg-slate-800">
               Active Trades
             </TabsTrigger>
             <TabsTrigger value="history" className="data-[state=active]:bg-slate-800">
               History
+            </TabsTrigger>
+            <TabsTrigger value="analytics" className="data-[state=active]:bg-slate-800">
+              Analytics
+            </TabsTrigger>
+            <TabsTrigger value="risk" className="data-[state=active]:bg-slate-800">
+              Risk
             </TabsTrigger>
             <TabsTrigger value="account" className="data-[state=active]:bg-slate-800">
               Account
@@ -157,6 +194,14 @@ function App() {
             <TradeHistory />
           </TabsContent>
 
+          <TabsContent value="analytics">
+            <PerformanceDashboard />
+          </TabsContent>
+
+          <TabsContent value="risk">
+            <RiskMetrics />
+          </TabsContent>
+
           <TabsContent value="account">
             <AccountSummary />
           </TabsContent>
@@ -170,7 +215,7 @@ function App() {
       {/* Footer */}
       <footer className="border-t border-slate-800 mt-12 py-6">
         <div className="container mx-auto px-6 text-center text-slate-400 text-sm">
-          <p>🤖 AI Agent Status: <span className="text-emerald-400">Active</span> • Monitoring markets and executing trades autonomously</p>
+          <p>🤖 AI Agent Status: <span className="text-emerald-400">Active</span> • Professional autonomous trading with multi-timeframe analysis</p>
           <p className="mt-2 text-xs text-slate-500">
             For educational and demonstration purposes only. Not financial advice.
           </p>
