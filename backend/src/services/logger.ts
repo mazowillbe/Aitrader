@@ -1,36 +1,109 @@
 import { db } from './database';
 
-type LogLevel = 'info' | 'warn' | 'error' | 'debug';
-type LogCategory = 'trade' | 'ai' | 'system' | 'api';
+interface LogEntry {
+  level: 'info' | 'warn' | 'error' | 'debug';
+  category: string;
+  message: string;
+  data?: any;
+}
 
 class Logger {
-  log(level: LogLevel, category: LogCategory, message: string, data?: any) {
-    const dataString = data ? JSON.stringify(data) : null;
+  /**
+   * Log an entry
+   */
+  log(level: LogEntry['level'], category: string, message: string, data?: any) {
+    const timestamp = new Date().toISOString();
+    const logEntry: LogEntry = { level, category, message, data };
 
-    db.prepare(`
-      INSERT INTO logs (level, category, message, data)
-      VALUES (?, ?, ?, ?)
-    `).run(level, category, message, dataString);
+    // Console output
+    const prefix = {
+      'info': '📋',
+      'warn': '⚠️',
+      'error': '❌',
+      'debug': '🔍'
+    }[level] || '📋';
 
-    // Also console log
-    const emoji = level === 'error' ? '❌' : level === 'warn' ? '⚠️' : level === 'info' ? 'ℹ️' : '🔍';
-    console.log(`${emoji} [${category.toUpperCase()}] ${message}`, data || '');
-  }
+    console.log(`${prefix} [${timestamp}] [${category}] ${message}`, data || '');
 
-  getLogs(limit = 100, category?: LogCategory) {
-    if (category) {
-      return db.prepare('SELECT * FROM logs WHERE category = ? ORDER BY created_at DESC LIMIT ?')
-        .all(category, limit);
+    // Store in database
+    try {
+      db.run(`
+        INSERT INTO logs (level, category, message, data)
+        VALUES (?, ?, ?, ?)
+      `, [level, category, message, data ? JSON.stringify(data) : null]);
+    } catch (error) {
+      console.error('Failed to write log to database:', error);
     }
-    return db.prepare('SELECT * FROM logs ORDER BY created_at DESC LIMIT ?').all(limit);
   }
 
-  clearOldLogs(daysToKeep = 7) {
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
+  /**
+   * Convenience methods
+   */
+  info(category: string, message: string, data?: any) {
+    this.log('info', category, message, data);
+  }
 
-    db.prepare('DELETE FROM logs WHERE created_at < ?').run(cutoffDate.toISOString());
-    this.log('info', 'system', `Cleared logs older than ${daysToKeep} days`);
+  warn(category: string, message: string, data?: any) {
+    this.log('warn', category, message, data);
+  }
+
+  error(category: string, message: string, data?: any) {
+    this.log('error', category, message, data);
+  }
+
+  debug(category: string, message: string, data?: any) {
+    if (process.env.NODE_ENV === 'development') {
+      this.log('debug', category, message, data);
+    }
+  }
+
+  /**
+   * Get recent logs
+   */
+  getRecent(limit: number = 100): LogEntry[] {
+    return db.query(`
+      SELECT * FROM logs
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(limit) as LogEntry[];
+  }
+
+  /**
+   * Get logs by category
+   */
+  getByCategory(category: string, limit: number = 50): LogEntry[] {
+    return db.query(`
+      SELECT * FROM logs
+      WHERE category = ?
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(category, limit) as LogEntry[];
+  }
+
+  /**
+   * Get logs by level
+   */
+  getByLevel(level: string, limit: number = 50): LogEntry[] {
+    return db.query(`
+      SELECT * FROM logs
+      WHERE level = ?
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(level, limit) as LogEntry[];
+  }
+
+  /**
+   * Clean old logs
+   */
+  cleanOldLogs(daysToKeep: number = 30) {
+    const result = db.run(`
+      DELETE FROM logs
+      WHERE created_at < datetime('now', '-' || ? || ' days')
+    `, [daysToKeep]);
+
+    if (result.changes > 0) {
+      console.log(`🧹 Cleaned ${result.changes} old log entries`);
+    }
   }
 }
 
