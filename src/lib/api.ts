@@ -1,0 +1,68 @@
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+
+class API {
+  async getConfig() {
+    const response = await fetch(`${BACKEND_URL}/api/config`);
+    if (!response.ok) throw new Error('Failed to fetch config');
+    return response.json();
+  }
+
+  async getAccountBalance() {
+    const response = await fetch(`${BACKEND_URL}/api/account/balance`);
+    if (!response.ok) throw new Error('Failed to fetch balance');
+    return response.json();
+  }
+
+  async getRiskSummary() {
+    const response = await fetch(`${BACKEND_URL}/api/account/risk-summary`);
+    if (!response.ok) throw new Error('Failed to fetch risk summary');
+    return response.json();
+  }
+
+  async getActiveTrades() {
+    const response = await fetch(`${BACKEND_URL}/api/trades/active`);
+    if (!response.ok) throw new Error('Failed to fetch active trades');
+    return response.json();
+  }
+
+  async getTradeHistory(limit = 50) {
+    const response = await fetch(`${BACKEND_URL}/api/trades/history?limit=${limit}`);
+    if (!response.ok) throw new Error('Failed to fetch trade history');
+    return response.json();
+  }
+
+  async getTradeStats() {
+    const response = await fetch(`${BACKEND_URL}/api/trades/stats`);
+    if (!response.ok) throw new Error('Failed to fetch trade stats');
+    return response.json();
+  }
+
+  async getLogs(limit = 100, category?: string) {
+    const url = category
+      ? `${BACKEND_URL}/api/logs?limit=${limit}&category=${category}`
+      : `${BACKEND_URL}/api/logs?limit=${limit}`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Failed to fetch logs');
+    return response.json();
+  }
+
+  async resetAccount() {
+    const response = await fetch(`${BACKEND_URL}/api/account/reset`, {
+      method: 'POST'
+    });
+    if (!response.ok) throw new Error('Failed to reset account');
+    return response.json();
+  }
+
+  async closeTrade(tradeId: number, exitPrice: number, reason: string) {
+    const response = await fetch(`${BACKEND_URL}/api/trades/${tradeId}/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ exitPrice, reason })
+    });
+    if (!response.ok) throw new Error('Failed to close trade');
+    return response.json();
+  }
+}
+
+export const api = new API();
