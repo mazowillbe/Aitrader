@@ -3,8 +3,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { api } from '@/lib/api';
 
 export function AccountSummary() {
-  const [balance, setBalance] = useState<any>(null);
-  const [risk, setRisk] = useState<any>(null);
+  const [balance, setBalance] = useState<Record<string, number> | null>(null);
+  const [risk, setRisk] = useState<Record<string, number | string> | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
