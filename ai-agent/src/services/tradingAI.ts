@@ -20,7 +20,7 @@ export class TradingAI {
   constructor() {
     const apiKey = process.env.GEMINI_API_KEY || '';
     this.genAI = new GoogleGenerativeAI(apiKey);
-    this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' }); // Using latest Gemini model
+    this.model = this.genAI.getGenerativeModel({ model: 'gemini-3-pro-preview' }); // Using latest Gemini model
   }
 
   /**
