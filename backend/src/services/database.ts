@@ -1,10 +1,34 @@
-import Database from 'better-sqlite3';
-import path from 'path';
+import Database from "better-sqlite3";
+import path from "path";
+import fs from "fs";
 
-const db = new Database(path.join(__dirname, '../../data/trading.db'));
+const dataDir = path.join(process.cwd(), "data");
+const dbPath = path.join(dataDir, "trading.db");
+
+// Ensure data directory exists
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
+
+let db: Database.Database;
+
+try {
+  db = new Database(dbPath);
+} catch (err) {
+  console.error("⚠️ Database corrupted. Recreating...");
+  
+  if (fs.existsSync(dbPath)) {
+    fs.unlinkSync(dbPath);
+  }
+
+  db = new Database(dbPath);
+}
+
+// Safer SQLite settings for cloud
+db.pragma("journal_mode = WAL");
+db.pragma("synchronous = NORMAL");
 
 export function initDatabase() {
-  // Create trades table
   db.exec(`
     CREATE TABLE IF NOT EXISTS trades (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -21,10 +45,9 @@ export function initDatabase() {
       ai_reasoning TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       closed_at DATETIME
-    )
+    );
   `);
 
-  // Create logs table
   db.exec(`
     CREATE TABLE IF NOT EXISTS logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,10 +56,9 @@ export function initDatabase() {
       message TEXT NOT NULL,
       data TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
+    );
   `);
 
-  // Create account_state table
   db.exec(`
     CREATE TABLE IF NOT EXISTS account_state (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,19 +68,22 @@ export function initDatabase() {
       daily_trades INTEGER DEFAULT 0,
       daily_risk_used REAL DEFAULT 0,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
+    );
   `);
 
-  // Initialize account state if not exists
-  const accountExists = db.prepare('SELECT COUNT(*) as count FROM account_state').get() as { count: number };
+  const accountExists = db
+    .prepare("SELECT COUNT(*) as count FROM account_state")
+    .get() as { count: number };
+
   if (accountExists.count === 0) {
     db.prepare(`
-      INSERT INTO account_state (balance, equity, margin_used, daily_trades, daily_risk_used)
+      INSERT INTO account_state 
+      (balance, equity, margin_used, daily_trades, daily_risk_used)
       VALUES (?, ?, ?, ?, ?)
-    `).run(10000, 10000, 0, 0, 0); // Start with $10,000 demo balance
+    `).run(10000, 10000, 0, 0, 0);
   }
 
-  console.log('✅ Database initialized');
+  console.log("✅ Database initialized");
 }
 
 export { db };
